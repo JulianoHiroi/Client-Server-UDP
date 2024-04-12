@@ -10,10 +10,47 @@ import hashlib
 
 # Função para calcular o checksum dos dados
 def calculate_checksum(data):
-    checksum = hashlib.md5(data).hexdigest()  # Usando MD5 como exemplo, você pode escolher outro algoritmo
-    return checksum
+    sum = 0
+    for i in range(0, len(data), 2):
+        if i + 1 < len(data):
+            word = (data[i] + (data[i + 1] << 8))
+        elif i < len(data):
+            word = data[i]
+        sum += word
+        sum = (sum & 0xffff) + (sum >> 16)
+    checksum = (~sum & 0xffff)
+    return checksum  
 
 
+
+def getFile (filename , client):
+    data, addr = client.recvfrom(1500)
+    if data.decode("utf-8") == "Arquivo não encontrado":
+        print ("Arquivo não encontrado")
+        return
+    print (f"Server: arquivo {filename} encontrado")
+    with open(f"client/arquivos/{filename}", "w",encoding='utf-8') as file:
+        i = 1
+        while True:
+            data, addr = client.recvfrom(1026)
+            
+            # Verificando o checksum
+            checksum = struct.unpack("H", data[:2])[0] 
+            data = data[2:]
+            # Verificando se é o fim do arquivo
+            if data.decode("utf-8") == "EOF":
+                break
+            calculated_checksum = calculate_checksum(data)
+
+            if checksum == calculated_checksum:
+                print("Checksum válido")
+                file.write(data.decode("utf-8"))
+                client.sendto(f'ACK {i}'.encode("utf-8"), addr)
+            else:
+                print("Checksum inválido")
+                break
+            i += 1
+        print (f"Server: arquivo {filename} recebido com sucesso")
 
 
 def main():
@@ -30,27 +67,9 @@ def main():
         data = comand.encode("utf-8")
         client.sendto(data, addr)
         
-        
         comand = comand.split(" ")
         if(comand[0] == "GET" and comand.__len__() > 1):
-            with open(f"client/arquivos/{comand[1]}", "w",encoding='utf-8') as file:
-                while True:
-                    data, addr = client.recvfrom(1500)
-                    if data.decode("utf-8") == "EOF":
-                        break
-                    print("Recebendo")
-                    checksum_length = struct.unpack("!H", data[:2])[0]
-                    checksum = data[2:2+checksum_length].decode()
-                    print(checksum)
-                    data = data[2+checksum_length:]
-                    calculated_checksum = calculate_checksum(data)
-                    if checksum == calculated_checksum:
-                        print("Checksum válido")
-                    if data.decode("utf-8") == "Arquivo não encontrado":
-                        print ("Arquivo não encontrado")
-                        break
-                    file.write(data.decode("utf-8"))
-            print (f"Server: arquivo {comand[1]} recebido com sucesso")
+           getFile(comand[1], client)
         else:
             data,addr = client.recvfrom(1024)
             print (data.decode("utf-8"))

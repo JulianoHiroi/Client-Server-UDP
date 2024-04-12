@@ -16,17 +16,24 @@ import hashlib
 
 # Função para calcular o checksum dos dados
 def calculate_checksum(data):
-    checksum = hashlib.md5(data).hexdigest()  # Usando MD5 como exemplo, você pode escolher outro algoritmo
-    return checksum
+    sum = 0
+    for i in range(0, len(data), 2):
+        if i + 1 < len(data):
+            word = (data[i] + (data[i + 1] << 8))
+        elif i < len(data):
+            word = data[i]
+        sum += word
+        sum = (sum & 0xffff) + (sum >> 16)
+    checksum = (~sum & 0xffff)
+    return checksum  
 
 def addChecksum(data):  
     checksum = calculate_checksum(data)
-    header_format = "!H"
-    header_with_checksum = struct.pack(header_format, len(checksum)) + checksum.encode()
+    header_format = "H"
+    header_with_checksum = struct.pack(header_format, checksum)
     return header_with_checksum + data
 
 def getFile (filename):
-    print(filename)
     try:
         file = open(f"server/arquivos/{filename}", "rb")
         return file.read()
@@ -39,9 +46,21 @@ def sendFile( file, addr, server):
     segments = [file[i:i+segment_size] for i in range(0, len(file), segment_size)]
     for segment in segments:
         data = addChecksum(segment)
+        print("Enviando segmento")
         server.sendto(data, addr)
-        print("Enviando")
-    server.sendto("EOF".encode("utf-8"), addr)
+        ack, addr = server.recvfrom(1024)
+        print(ack.decode("utf-8"))
+        if ack.decode("utf-8") != f"ACK {segments.index(segment) + 1}":
+            print("Erro no envio do segmento")
+            message_EOF = "EOF"
+            message = addChecksum(message_EOF.encode("utf-8"))
+            server.sendto(message, addr)
+            break
+        else:
+            print("Segmento enviado com sucesso")
+    message_EOF = "EOF"
+    message = addChecksum(message_EOF.encode("utf-8"))
+    server.sendto(message, addr)
     
 
 def main():
@@ -66,7 +85,8 @@ def main():
             if(file == "Arquivo não encontrado"):
                 server.sendto(file.encode("utf-8"), addr)
                 continue
-        sendFile(file, addr, server)
+            server.sendto("Arquvo encontrado".encode("utf-8"), addr)
+            sendFile(file, addr, server)
 
 
 if __name__ == "__main__":
