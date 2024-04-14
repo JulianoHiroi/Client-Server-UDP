@@ -2,7 +2,7 @@ import socket
 import struct
 import os as cv2
 
-
+TIMEOUT = 2
 
 
 #O processo para a exeucação do servidor é o seguinte:
@@ -33,6 +33,16 @@ def addChecksum(data):
     header_with_checksum = struct.pack(header_format, checksum)
     return header_with_checksum + data
 
+def addNumberSegment(data, number):
+    header_format = "H"
+    header_with_number = struct.pack(header_format, number)
+    return header_with_number + data
+
+def createPackage(data, number):
+    data = addChecksum(data)
+    data = addNumberSegment(data, number)
+    return data
+
 def getFile (filename):
     try:
         file = open(f"server/arquivos/{filename}", "rb")
@@ -41,40 +51,68 @@ def getFile (filename):
         return "Arquivo não encontrado"
 
 
+
 def sendFile( file, addr, server):
     segment_size = 1024
     segments = [file[i:i+segment_size] for i in range(0, len(file), segment_size)]
-    for segment in segments:
-        data = addChecksum(segment)
-        print("Enviando segmento")
-        server.sendto(data, addr)
-        ack, addr = server.recvfrom(1024)
-        print(ack.decode("utf-8"))
-        if ack.decode("utf-8") != f"ACK {segments.index(segment) + 1}":
+    server.settimeout(TIMEOUT)
+    i = 0
+    while i < len(segments):
+        package = createPackage(segments[i], i)
+        print("Enviando segmento ", i) 
+        server.sendto(package, addr)
+        try:
+            message, addr = server.recvfrom(1024)
+        except socket.timeout:
+            print("Timeout")
+            continue 
+        message = message.decode("utf-8").split(" ")
+        numberACK = int(message[1])
+        print("Recebendo ACK", numberACK)
+        if numberACK < i:
             print("Erro no envio do segmento")
-            message_EOF = "EOF"
-            message = addChecksum(message_EOF.encode("utf-8"))
-            server.sendto(message, addr)
-            break
-        else:
+            i = numberACK + 1
+            continue
+        elif message :
             print("Segmento enviado com sucesso")
-    message_EOF = "EOF"
-    message = addChecksum(message_EOF.encode("utf-8"))
-    server.sendto(message, addr)
+        i += 1 
+    
+    print("Mandando EOF")
+    package = createPackage("EOF".encode("utf-8"), 0)
+    server.sendto(package, addr)
+
+
+    try:
+        while True:
+            message, addr = server.recvfrom(1024)
+            print("message: ",message.decode("utf-8"))
+            message = message.decode("utf-8").split(" ")
+            if message[0] == "RECEBIDO":
+                break
+        
+    except socket.timeout:
+        print("Timeout, Deu RUIM")
+        return
+    print("Arquivo enviado com sucesso")
     
 
 def main():
     host = "127.0.0.1"
     port = 4455 
-
+    
     server = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    
 
     server.bind((host, port))
 
     while True:
+        server.settimeout(None)
         data, addr = server.recvfrom(1024)
         print("Recebendo de ", addr, " : ", data)
         data = data.decode("utf-8")
+        if(data == "exit"):
+            server.sendto("exit".encode("utf-8"), addr)
+            break
         data = data.split(" ")
         if(data.__len__() < 2 or data[0] != "GET"):
             print ("Comando inválido")
@@ -87,6 +125,8 @@ def main():
                 continue
             server.sendto("Arquvo encontrado".encode("utf-8"), addr)
             sendFile(file, addr, server)
+
+    server.close()
 
 
 if __name__ == "__main__":

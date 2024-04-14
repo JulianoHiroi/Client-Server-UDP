@@ -1,9 +1,10 @@
 import socket
 import struct
 import sys
+from time import sleep
 
 # Acessando os argumentos passados
-argumentos = sys.argv
+BUFFER  = 1500
 
 
 import hashlib
@@ -24,32 +25,51 @@ def calculate_checksum(data):
 
 
 def getFile (filename , client):
-    data, addr = client.recvfrom(1500)
+    falha = True
+    data, addr = client.recvfrom(BUFFER)
     if data.decode("utf-8") == "Arquivo não encontrado":
         print ("Arquivo não encontrado")
         return
     print (f"Server: arquivo {filename} encontrado")
     with open(f"client/arquivos/{filename}", "w",encoding='utf-8') as file:
-        i = 1
+        i = 0
+        lastSegment = 0
         while True:
-            data, addr = client.recvfrom(1026)
-            
+            print("Esperando segmento ", i)
+            data, addr = client.recvfrom(BUFFER)
+            if(i == 2 and falha == True):
+                print("Descartei o segmento ", i)
+                falha = False
+                continue
             # Verificando o checksum
-            checksum = struct.unpack("H", data[:2])[0] 
-            data = data[2:]
+            numberPack = struct.unpack("H", data[:2])[0]
+            checksum = struct.unpack("H", data[2:4])[0]
+            data = data[4:]
             # Verificando se é o fim do arquivo
-            if data.decode("utf-8") == "EOF":
-                break
-            calculated_checksum = calculate_checksum(data)
 
+            if data.decode("utf-8") == "EOF":
+                print("Fim do arquivo")
+                client.sendto(f"RECEBIDO".encode("utf-8"), addr)
+                break
+
+            calculated_checksum = calculate_checksum(data)
+            
             if checksum == calculated_checksum:
-                print("Checksum válido")
+                print("Foi recebido o segmento ", numberPack , "esperado o segmento ", i)
+                if(i != numberPack ):
+                    print("Foi enviado o ACK anterior ", lastSegment )
+                    client.sendto(f'ACK {lastSegment}'.encode("utf-8"), addr)
+                    continue
+
                 file.write(data.decode("utf-8"))
+                print("Foi enviado o ACK ", i  )
                 client.sendto(f'ACK {i}'.encode("utf-8"), addr)
+                lastSegment = i
             else:
                 print("Checksum inválido")
                 break
             i += 1
+        
         print (f"Server: arquivo {filename} recebido com sucesso")
 
 
@@ -71,7 +91,7 @@ def main():
         if(comand[0] == "GET" and comand.__len__() > 1):
            getFile(comand[1], client)
         else:
-            data,addr = client.recvfrom(1024)
+            data,addr = client.recvfrom(BUFFER)
             print (data.decode("utf-8"))
             print (addr)
         
