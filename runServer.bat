@@ -1,2 +1,2 @@
 @echo off
-python Server/main.py
+python serverTeste.py

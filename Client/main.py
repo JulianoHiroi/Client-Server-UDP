@@ -22,12 +22,19 @@ def calculate_checksum(data):
     checksum = (~sum & 0xffff)
     return checksum  
 
+def decodePackage(data):
+    numberPack = struct.unpack("H", data[:2])[0]
+    checksum = struct.unpack("H", data[2:4])[0]
+    data = data[4:]
+    return numberPack, checksum, data
+
 
 
 def getFile (filename , client):
     falha = True
     data, addr = client.recvfrom(BUFFER)
-    if data.decode("utf-8") == "Arquivo não encontrado":
+    data = decodePackage(data)
+    if data[2].decode("utf-8") == "Arquivo não encontrado":
         print ("Arquivo não encontrado")
         return
     print (f"Server: arquivo {filename} encontrado")
@@ -37,14 +44,13 @@ def getFile (filename , client):
         while True:
             print("Esperando segmento ", i)
             data, addr = client.recvfrom(BUFFER)
-            if(i == 2 and falha == True):
+            '''if(i == 2 and falha == True):
                 print("Descartei o segmento ", i)
                 falha = False
-                continue
+                continue'''
             # Verificando o checksum
-            numberPack = struct.unpack("H", data[:2])[0]
-            checksum = struct.unpack("H", data[2:4])[0]
-            data = data[4:]
+            numberPack, checksum, data = decodePackage(data)
+            print("Recebendo segmento ", numberPack)
             # Verificando se é o fim do arquivo
 
             if data.decode("utf-8") == "EOF":
@@ -75,7 +81,7 @@ def getFile (filename , client):
 
 def main():
     host = "127.0.0.1"
-    port = 4455 
+    port = 5555 
     addr = (host, port)
 
     client = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -85,15 +91,16 @@ def main():
         comand = input("Enter a word: ")
 
         data = comand.encode("utf-8")
+        print (f"Client: Enviando {data} para o servidor")
         client.sendto(data, addr)
         
         comand = comand.split(" ")
         if(comand[0] == "GET" and comand.__len__() > 1):
            getFile(comand[1], client)
         else:
-            data,addr = client.recvfrom(BUFFER)
-            print (data.decode("utf-8"))
-            print (addr)
+            data , addr = client.recvfrom(BUFFER)
+            data = decodePackage(data)
+            print(data[2].decode("utf-8"))
         
 
 if __name__ == "__main__":
